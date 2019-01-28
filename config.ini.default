@@ -1,4 +1,6 @@
 # no section for preset values
 
 [secret]
-#empty value for secret values
+email=
+password=
+default-list=
