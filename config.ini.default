@@ -1,4 +1,6 @@
-# no section for preset values
+[global]
+mqtt-host=localhost
+mqtt-port=1883
 
 [secret]
 email=

@@ -4,14 +4,11 @@
 from snipsTools import SnipsConfigParser
 from hermes_python.hermes import Hermes
 from hermes_python.ontology import *
+import paho.mqtt.client as mqtt
 import io
 import requests
 
 CONFIG_INI = "config.ini"
-
-MQTT_IP_ADDR = "localhost"
-MQTT_PORT = 1883
-MQTT_ADDR = "{}:{}".format(MQTT_IP_ADDR, str(MQTT_PORT))
 
 class ShoppingList(object):
     def __init__(self):
@@ -46,10 +43,30 @@ class ShoppingList(object):
         if response.status_code == 200:
             for lists in response.json()['lists']:
                 self.shoppingLists[lists['name'].encode('utf-8')] = lists['listUuid'].encode('utf-8')
-            print 'Loaded lists : {}'.format(self.shoppingLists)
         else:
             print 'Unable to load shopping lists'
             return
+
+        # load the available shopping lists to Snips to be sure they are up-to-date
+        injecting_json = '{ "operations": [ [ "addFromVanilla", { "ShoppingListList" : ['
+        first = 1
+        for list in self.shoppingLists.keys():
+            if first:
+              first = 0
+            else:
+              injecting_json += ', '
+            injecting_json += '"' + list + '"'
+        injecting_json += '] } ] ] }'
+        injecting_mqtt = mqtt.Client()
+        injecting_mqtt.connect(self.config.get('global').get('mqtt-host'), int(self.config.get('global').get('mqtt-port')))
+        injecting_mqtt.loop_start()
+        rc = injecting_mqtt.publish('hermes/injection/perform', injecting_json)
+        rc.wait_for_publish()
+        if rc.is_published:
+            print 'Injected the lists to Snips ASR and NLU'
+        else:
+            print 'Could not inject the lists to Snips ASR and NLU'
+        injecting_mqtt.disconnect()
 
         # start listening to MQTT
         self.start_blocking()
@@ -57,6 +74,7 @@ class ShoppingList(object):
     # --> Sub callback function, one per intent
     def intent_addItem_callback(self, hermes, intent_message):
         print 'Received intent: {}'.format(intent_message.intent.intent_name)
+        hermes.publish_end_session(intent_message.session_id, "")
 
         if intent_message.slots:
             if intent_message.slots.list:
@@ -64,7 +82,6 @@ class ShoppingList(object):
             else:
                 listName = self.config.get('secret').get('default-list')
 
-            print 'Looking for list : {}'.format(listName)
             listUuid = self.shoppingLists[listName]
 
             itemList = ''
@@ -75,16 +92,17 @@ class ShoppingList(object):
                         'uuid' : self.bringListUUID
                     }
                     response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
-                    print 'Added "{}" to the shopping list "{}"'.format(item.value.encode('utf-8'), listName)
                     if itemList == '':
                         itemList = item.value
                     else:
                         itemList = itemList+' et '+item.value
 
-            hermes.publish_end_session(intent_message.session_id, "J'ai ajouté {} à la liste {}".decode('utf-8').format(itemList, listName.decode('utf-8')))
+            message = "J'ai ajouté {} à la liste {}".format(itemList.encode('utf-8'), listName)
+            print message
+            hermes.publish_start_session_notification(intent_message.site_id, message.decode('utf-8'), "")
         else:
             print 'No slot found'
-            hermes.publish_end_session(intent_message.session_id, "Je n'ai pas compris, merci de réessayer".decode('utf-8'))
+            hermes.publish_start_session_notification(intent_message.site_id, "Je n'ai pas compris, merci de réessayer".decode('utf-8'), "")
 
     # --> Master callback function, triggered everytime an intent is recognized
     def master_intent_callback(self,hermes, intent_message):
@@ -94,9 +112,9 @@ class ShoppingList(object):
 
     # --> Register callback function and start MQTT
     def start_blocking(self):
+        MQTT_ADDR = "{}:{}".format(self.config.get('global').get('mqtt-host'), self.config.get('global').get('mqtt-port'))
         with Hermes(MQTT_ADDR) as h:
             h.subscribe_intents(self.master_intent_callback).start()
 
 if __name__ == "__main__":
     ShoppingList()
- 
