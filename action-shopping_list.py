@@ -37,7 +37,7 @@ class ShoppingList(object):
             'X-BRING-COUNTRY': 'FR'
         }
 
-        # load the available shoppping lists
+        # load the available shopping lists
         self.shoppingLists = {}
         response = requests.get('https://api.getbring.com/rest/bringusers/' + self.UUID + '/lists', headers=self.headers)
         if response.status_code == 200:
@@ -77,27 +77,50 @@ class ShoppingList(object):
         hermes.publish_end_session(intent_message.session_id, "")
 
         if intent_message.slots:
+            # Find the shopping list to use
             if intent_message.slots.list:
                 listName = intent_message.slots.list.first().value.encode('utf-8')
             else:
                 listName = self.config.get('secret').get('default-list')
-
             listUuid = self.shoppingLists[listName]
 
-            itemList = ''
+            # Load the items already in the list
+            existingItems = []
+            rs = requests.get('https://api.getbring.com/rest/bringlists/' + listUuid, headers=self.headers)
+            if rs.status_code == 200:
+                for i in rs.json()['purchase']:
+                    existingItems.append(i['name'])
+
+            addedItems = ''
+            notAddedItems = ''
             for item in intent_message.slots.item.all():
                 if item.value != 'unknownword':
-                    payload = {
-                        'purchase': item.value,
-                        'uuid' : self.bringListUUID
-                    }
-                    response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
-                    if itemList == '':
-                        itemList = item.value
-                    else:
-                        itemList = itemList+' et '+item.value
+                    if item.value in existingItems:
+                        # Item already exists
+                        if notAddedItems == '':
+                            notAddedItems = item.value
+                        else:
+                            notAddedItems = notAddedItems + ' et ' + item.value
 
-            message = "J'ai ajouté {} à la liste {}".format(itemList.encode('utf-8'), listName)
+                    else:
+                        # Item not found, adding it
+                        payload = {
+                            'purchase': item.value,
+                            'uuid' : self.bringListUUID
+                        }
+                        response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
+                        if addedItems == '':
+                            addedItems = item.value
+                        else:
+                            addedItems = addedItems + ' et ' + item.value
+
+            if notAddedItems == '':
+                message = "J'ai ajouté {} à la liste {}".format(addedItems.encode('utf-8'), listName)
+            else:
+                if addedItems == '':
+                    message = "{} est déjà présent dans la liste {}".format(notAddedItems.encode('utf-8'), listName)
+                else:
+                    message = "J'ai ajouté {} à la liste {} mais {} était déjà présent".format(addedItems.encode('utf-8'), listName, notAddedItems.encode('utf-8'))
             print message
             hermes.publish_start_session_notification(intent_message.site_id, message.decode('utf-8'), "")
         else:
@@ -118,3 +141,4 @@ class ShoppingList(object):
 
 if __name__ == "__main__":
     ShoppingList()
+
