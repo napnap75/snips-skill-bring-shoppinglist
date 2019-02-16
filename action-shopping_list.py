@@ -47,6 +47,17 @@ class ShoppingList(object):
             print 'Unable to load shopping lists'
             return
 
+        # Load the translations
+        self.items_fr = {}
+        response = requests.get('https://web.getbring.com/locale/articles.fr-FR.json')
+        if response.status_code == 200:
+            self.items_de = response.json()
+            for i in self.items_de.keys():
+                self.items_fr[self.items_de[i]] = i
+        else:
+            print 'Unable to load the translations'
+            return
+
         # load the available shopping lists to Snips to be sure they are up-to-date
         injecting_json = '{ "operations": [ [ "addFromVanilla", { "ShoppingListList" : ['
         first = 1
@@ -89,30 +100,36 @@ class ShoppingList(object):
             rs = requests.get('https://api.getbring.com/rest/bringlists/' + listUuid, headers=self.headers)
             if rs.status_code == 200:
                 for i in rs.json()['purchase']:
-                    existingItems.append(i['name'])
+                    if i['name'] in self.items_de.keys():
+                      existingItems.append(self.items_de[i['name']])
+                    else:
+                      existingItems.append(i['name'])
 
             addedItems = ''
             notAddedItems = ''
             for item in intent_message.slots.item.all():
-                if item.value != 'unknownword':
-                    if item.value in existingItems:
-                        # Item already exists
-                        if notAddedItems == '':
-                            notAddedItems = item.value
-                        else:
-                            notAddedItems = notAddedItems + ' et ' + item.value
+                    if item.value != 'unknownword':
+                        if item.value in existingItems:
+                            # Item already exists
+                            if notAddedItems == '':
+                                notAddedItems = item.value
+                            else:
+                                notAddedItems = notAddedItems + ' et ' + item.value
 
-                    else:
-                        # Item not found, adding it
-                        payload = {
-                            'purchase': item.value,
-                            'uuid' : self.bringListUUID
-                        }
-                        response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
-                        if addedItems == '':
-                            addedItems = item.value
                         else:
-                            addedItems = addedItems + ' et ' + item.value
+                            # Item not found, adding it
+                            payload = {
+                                'uuid' : self.bringListUUID
+                            }
+                            if item.value in self.items_fr.keys():
+                                payload['purchase'] = self.items_fr[item.value]
+                            else:
+                                payload['purchase'] = item.value
+                            response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
+                            if addedItems == '':
+                                addedItems = item.value
+                            else:
+                                addedItems = addedItems + ' et ' + item.value
 
             if notAddedItems == '':
                 message = "J'ai ajouté {} à la liste {}".format(addedItems.encode('utf-8'), listName)
@@ -141,4 +158,3 @@ class ShoppingList(object):
 
 if __name__ == "__main__":
     ShoppingList()
-
