@@ -58,7 +58,7 @@ class ShoppingList(object):
             print 'Unable to load the translations'
             return
 
-        # load the available shopping lists to Snips to be sure they are up-to-date
+        # load the available shopping lists and items to Snips to be sure they are up-to-date
         injecting_json = '{ "operations": [ [ "addFromVanilla", { "ShoppingListList" : ['
         first = 1
         for list in self.shoppingLists.keys():
@@ -67,6 +67,14 @@ class ShoppingList(object):
             else:
               injecting_json += ', '
             injecting_json += '"' + list + '"'
+        injecting_json += '], "ShoppingListItem" : ['
+        first = 1
+        for item in self.items_fr.keys():
+            if first:
+              first = 0
+            else:
+              injecting_json += ', '
+            injecting_json += '"' + item.encode('utf-8') + '"'
         injecting_json += '] } ] ] }'
         injecting_mqtt = mqtt.Client()
         injecting_mqtt.connect(self.config.get('global').get('mqtt-host'), int(self.config.get('global').get('mqtt-port')))
@@ -87,7 +95,7 @@ class ShoppingList(object):
         print 'Received intent: {}'.format(intent_message.intent.intent_name)
         hermes.publish_end_session(intent_message.session_id, "")
 
-        if intent_message.slots:
+        if intent_message.slots.item:
             # Find the shopping list to use
             if intent_message.slots.list:
                 listName = intent_message.slots.list.first().value.encode('utf-8')
@@ -108,7 +116,7 @@ class ShoppingList(object):
             addedItems = ''
             notAddedItems = ''
             for item in intent_message.slots.item.all():
-                    if item.value != 'unknownword':
+                    if item.value != '' and item.value != 'unknownword':
                         if item.value in existingItems:
                             # Item already exists
                             if notAddedItems == '':
