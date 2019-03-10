@@ -58,7 +58,7 @@ class ShoppingList(object):
             print 'Unable to load the translations'
             return
 
-        # load the available shopping lists and items to Snips to be sure they are up-to-date
+        # Load the available shopping lists and items to Snips to be sure they are up-to-date
         injecting_json = '{ "operations": [ [ "addFromVanilla", { "ShoppingListList" : ['
         first = 1
         for list in self.shoppingLists.keys():
@@ -75,6 +75,11 @@ class ShoppingList(object):
             else:
               injecting_json += ', '
             injecting_json += '"' + item.encode('utf-8') + '"'
+        response = requests.get('https://api.getbring.com/rest/bringlists/' + self.bringListUUID + '/details', headers=self.headers)
+        if response.status_code == 200:
+            for i in response.json():
+                if i['itemId'] not in self.items_de.keys():
+                    injecting_json += ', "' + i['itemId'].encode('utf-8') + '"'
         injecting_json += '] } ] ] }'
         injecting_mqtt = mqtt.Client()
         injecting_mqtt.connect(self.config.get('global').get('mqtt-host'), int(self.config.get('global').get('mqtt-port')))
@@ -93,9 +98,9 @@ class ShoppingList(object):
     # --> Sub callback function, one per intent
     def intent_addItem_callback(self, hermes, intent_message):
         print 'Received intent: {}'.format(intent_message.intent.intent_name)
-        hermes.publish_end_session(intent_message.session_id, "")
+        #hermes.publish_end_session(intent_message.session_id, "")
 
-        if intent_message.slots.item:
+        if intent_message.slots is not None and intent_message.slots.item:
             # Find the shopping list to use
             if intent_message.slots.list:
                 listName = intent_message.slots.list.first().value.encode('utf-8')
@@ -146,11 +151,11 @@ class ShoppingList(object):
                     message = "{} est déjà présent dans la liste {}".format(notAddedItems.encode('utf-8'), listName)
                 else:
                     message = "J'ai ajouté {} à la liste {} mais {} était déjà présent".format(addedItems.encode('utf-8'), listName, notAddedItems.encode('utf-8'))
-            print message
-            hermes.publish_start_session_notification(intent_message.site_id, message.decode('utf-8'), "")
+            #hermes.publish_start_session_notification(intent_message.site_id, message.decode('utf-8'), "")
+            hermes.publish_end_session(intent_message.session_id, message.decode('utf-8'))
         else:
-            print 'No slot found'
-            hermes.publish_start_session_notification(intent_message.site_id, "Je n'ai pas compris, merci de réessayer".decode('utf-8'), "")
+            #hermes.publish_start_session_notification(intent_message.site_id, "Je n'ai pas compris, merci de réessayer".decode('utf-8'), "")
+            hermes.publish_end_session(intent_message.session_id, "Je n'ai pas compris, merci de réessayer".decode('utf-8'))
 
     # --> Master callback function, triggered everytime an intent is recognized
     def master_intent_callback(self,hermes, intent_message):
