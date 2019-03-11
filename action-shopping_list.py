@@ -109,25 +109,47 @@ class ShoppingList(object):
             listUuid = self.shoppingLists[listName]
 
             # Load the items already in the list
-            existingItems = []
+            existingItems = {}
             rs = requests.get('https://api.getbring.com/rest/bringlists/' + listUuid, headers=self.headers)
             if rs.status_code == 200:
                 for i in rs.json()['purchase']:
                     if i['name'] in self.items_de.keys():
-                      existingItems.append(self.items_de[i['name']])
+                        existingItems[self.items_de[i['name']]] = i['specification']
                     else:
-                      existingItems.append(i['name'])
+                        existingItems[i['name']] = i['specification']
 
             addedItems = ''
             notAddedItems = ''
             for item in intent_message.slots.item.all():
                     if item.value != '' and item.value != 'unknownword':
-                        if item.value in existingItems:
+                        if item.value in existingItems.keys():
                             # Item already exists
-                            if notAddedItems == '':
-                                notAddedItems = item.value
+                            if intent_message.slots.destination and existingItems[item.value] != intent_message.slots.destination.first().value:
+                                # Different specification, updating it
+                                payload = {
+                                    'uuid' : self.bringListUUID
+                                }
+                                if item.value in self.items_fr.keys():
+                                    payload['purchase'] = self.items_fr[item.value]
+                                else:
+                                    payload['purchase'] = item.value
+
+                                if existingItems[item.value] == '':
+                                    payload['specification'] = intent_message.slots.destination.first().value
+                                else:
+                                    payload['specification'] = intent_message.slots.destination.first().value + ' ' + existingItems[item.value]
+
+                                response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
+                                if addedItems == '':
+                                    addedItems = item.value
+                                else:
+                                    addedItems = addedItems + ' et ' + item.value
                             else:
-                                notAddedItems = notAddedItems + ' et ' + item.value
+                                # No specification or same specification, doing nothing
+                                if notAddedItems == '':
+                                    notAddedItems = item.value
+                                else:
+                                    notAddedItems = notAddedItems + ' et ' + item.value
 
                         else:
                             # Item not found, adding it
@@ -138,6 +160,10 @@ class ShoppingList(object):
                                 payload['purchase'] = self.items_fr[item.value]
                             else:
                                 payload['purchase'] = item.value
+
+                            if intent_message.slots.destination:
+                                payload['specification'] = intent_message.slots.destination.first().value
+
                             response = requests.put('https://api.getbring.com/rest/bringlists/' + listUuid, data=payload, headers=self.headers)
                             if addedItems == '':
                                 addedItems = item.value
@@ -158,7 +184,7 @@ class ShoppingList(object):
             hermes.publish_end_session(intent_message.session_id, "Je n'ai pas compris, merci de réessayer".decode('utf-8'))
 
     # --> Master callback function, triggered everytime an intent is recognized
-    def master_intent_callback(self,hermes, intent_message):
+    def master_intent_callback(self, hermes, intent_message):
         coming_intent = intent_message.intent.intent_name
         if coming_intent == 'tnappez:addItemToShoppingList':
             self.intent_addItem_callback(hermes, intent_message)
